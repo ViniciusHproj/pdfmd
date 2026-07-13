@@ -72,11 +72,29 @@
 }
 .new-conversion { display: block; text-align: center; margin-top: 22px; color: var(--muted); font-size: 0.85rem; }
 .new-conversion a { color: var(--accent); }
+.download-all-bar { display: none; margin-bottom: 18px; }
+.download-all-bar.show { display: block; }
+.download-all-bar button {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  background: var(--success);
+  color: #06231a;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.download-all-bar button:hover { filter: brightness(1.05); }
 {% endblock %}
 
 {% block content %}
 <h1>📦 Fila de conversão</h1>
 <p class="subtitle">{{ jobs|length }} arquivo(s) na fila. Processados um de cada vez.</p>
+
+<div class="download-all-bar" id="download-all-bar">
+  <button type="button" id="download-all-btn">⬇ Baixar todos os concluídos (<span id="download-all-count">0</span>)</button>
+</div>
 
 <div id="jobs-container">
   {% for job in jobs %}
@@ -99,8 +117,21 @@
 <script>
   const jobIds = [{% for job in jobs %}{{ job.pk }}{% if not forloop.last %},{% endif %}{% endfor %}];
   const statusUrlBase = "/job/";
+  const downloadAllUrl = "{% url 'converter:download_all' %}?ids=" + jobIds.join(',');
 
   const badgeText = { queued: 'na fila', running: 'processando', done: 'concluído', failed: 'falhou' };
+  const doneJobs = new Set();
+
+  const downloadAllBar = document.getElementById('download-all-bar');
+  const downloadAllCount = document.getElementById('download-all-count');
+  document.getElementById('download-all-btn').addEventListener('click', () => {
+    window.location.href = downloadAllUrl;
+  });
+
+  function updateDownloadAllBar() {
+    downloadAllCount.textContent = doneJobs.size;
+    downloadAllBar.classList.toggle('show', doneJobs.size > 0);
+  }
 
   async function pollJob(jobId) {
     const card = document.getElementById('job-' + jobId);
@@ -119,6 +150,8 @@
       barFill.style.width = data.progress_percent + '%';
 
       if (data.status === 'done') {
+        doneJobs.add(jobId);
+        updateDownloadAllBar();
         if (data.needs_review) {
           card.classList.add('review');
           badge.className = 'badge review';

@@ -1,4 +1,7 @@
-from django.http import JsonResponse
+import io
+import zipfile
+
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
@@ -36,6 +39,38 @@ def queue_view(request):
     jobs = list(ConversionJob.objects.filter(pk__in=job_ids))
     jobs.sort(key=lambda j: job_ids.index(j.pk))
     return render(request, "converter/queue.html", {"jobs": jobs})
+
+
+def download_all(request):
+    ids_param = request.GET.get("ids", "")
+    job_ids = [int(i) for i in ids_param.split(",") if i.strip().isdigit()]
+    jobs = ConversionJob.objects.filter(
+        pk__in=job_ids, status=ConversionJob.STATUS_DONE
+    ).exclude(result_file="")
+
+    if not jobs:
+        return HttpResponse("Nenhum arquivo concluído para baixar.", status=404)
+
+    buffer = io.BytesIO()
+    used_names = set()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for job in jobs:
+            name = job.result_file.name.rsplit("/", 1)[-1]
+            base, ext = name.rsplit(".", 1) if "." in name else (name, "md")
+            candidate = name
+            counter = 2
+            while candidate in used_names:
+                candidate = f"{base} ({counter}).{ext}"
+                counter += 1
+            used_names.add(candidate)
+
+            with job.result_file.open("rb") as f:
+                zip_file.writestr(candidate, f.read())
+
+    buffer.seek(0)
+    response = HttpResponse(buffer.getvalue(), content_type="application/zip")
+    response["Content-Disposition"] = 'attachment; filename="markdowns_convertidos.zip"'
+    return response
 
 
 def progress_status(request, job_id):

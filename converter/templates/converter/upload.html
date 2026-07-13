@@ -13,7 +13,7 @@
   position: relative;
 }
 .dropzone.dragover { border-color: var(--accent); background: rgba(108,140,255,0.06); }
-.dropzone svg { opacity: .7; margin-bottom: 10px; }
+.dropzone svg { opacity: .7; margin-bottom: 10px; pointer-events: none; }
 .filelist {
   margin-top: 14px;
   font-size: 0.85rem;
@@ -21,13 +21,12 @@
   text-align: left;
   max-height: 140px;
   overflow-y: auto;
+  pointer-events: none;
 }
 .filelist div { padding: 3px 0; border-bottom: 1px solid var(--panel-border); }
+.dropzone div, .dropzone .hint { pointer-events: none; }
 .dropzone input[type="file"] {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
+  display: none;
 }
 .hint { color: var(--muted); font-size: 0.85rem; margin-top: 8px; }
 button.submit {
@@ -54,7 +53,7 @@ button.submit:disabled { background: #40465c; cursor: not-allowed; }
 
 <form method="post" enctype="multipart/form-data" id="upload-form">
   {% csrf_token %}
-  <label class="dropzone" id="dropzone">
+  <div class="dropzone" id="dropzone">
     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#6c8cff" stroke-width="1.5">
       <path d="M12 3v12m0-12 4 4m-4-4-4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
@@ -62,7 +61,7 @@ button.submit:disabled { background: #40465c; cursor: not-allowed; }
     <div class="hint">Apenas arquivos .pdf</div>
     <div class="filelist" id="filelist"></div>
     {{ form.pdf_files }}
-  </label>
+  </div>
 
   {% if form.pdf_files.errors %}
     <ul class="error-list">
@@ -94,14 +93,30 @@ button.submit:disabled { background: #40465c; cursor: not-allowed; }
 
   input.addEventListener('change', () => renderFiles(input.files));
 
+  dropzone.addEventListener('click', () => input.click());
+
+  // Evita que o navegador abra o PDF numa aba nova se o usuário soltar
+  // fora da dropzone (comportamento padrão do browser para drag-and-drop de arquivos).
+  ['dragenter', 'dragover', 'drop'].forEach(evt =>
+    window.addEventListener(evt, e => e.preventDefault())
+  );
+
   ['dragenter', 'dragover'].forEach(evt =>
-    dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('dragover'); })
+    dropzone.addEventListener(evt, e => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.classList.add('dragover');
+    })
   );
   ['dragleave', 'drop'].forEach(evt =>
-    dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('dragover'); })
+    dropzone.addEventListener(evt, e => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.classList.remove('dragover');
+    })
   );
   dropzone.addEventListener('drop', e => {
-    if (e.dataTransfer.files.length) {
+    if (e.dataTransfer.files && e.dataTransfer.files.length) {
       input.files = e.dataTransfer.files;
       renderFiles(input.files);
     }
