@@ -52,6 +52,9 @@ def run_pipeline(job):
         pdf_path = job.original_pdf.path
         blocks = split_pdf(pdf_path, settings.PDF_BLOCK_SIZE)
 
+        if not blocks:
+            raise ValueError("O arquivo PDF enviado não contém páginas legíveis.")
+
         job.total_blocks = len(blocks)
         job.current_block = 0
         job.save(update_fields=["total_blocks", "current_block", "updated_at"])
@@ -75,6 +78,12 @@ def run_pipeline(job):
             markdown = _call_with_rate_limit_handling(
                 convert_block_to_markdown, index, len(blocks), pages_label, block["pdf_bytes"], on_retry,
             )
+
+            if not markdown:
+                raise ValueError(
+                    f"Bloco {index}/{len(blocks)} ({pages_label}): "
+                    "o Gemini retornou resposta vazia. Tente novamente."
+                )
 
             validated_markdown = None
             last_validation = None
@@ -174,6 +183,11 @@ def _call_with_rate_limit_handling(fn, index, total, pages_label, *args, **kwarg
                 f"Bloco {index}/{total} ({pages_label}): limite de requisições da API "
                 f"do Gemini excedido mesmo após várias tentativas. Tente novamente mais tarde."
             ) from exc
+        if _is_daily_quota_exhausted(exc):
+            raise RateLimitExhaustedError(
+                f"Bloco {index}/{total} ({pages_label}): cota diária da API do Gemini esgotada. "
+                f"A cota reseta à meia-noite (horário do Google). Tente novamente amanhã."
+            ) from exc
         raise
 
 
@@ -196,7 +210,18 @@ def _format_issues(validation):
 
 def _is_rate_limit_exhausted(exc):
     from google.genai import errors
-    return isinstance(exc, errors.APIError) and getattr(exc, "code", None) == 429
+    if not (isinstance(exc, errors.APIError) and getattr(exc, "code", None) == 429):
+        return False
+    msg = str(exc).lower()
+    return "per day" not in msg
+
+
+def _is_daily_quota_exhausted(exc):
+    from google.genai import errors
+    if not (isinstance(exc, errors.APIError) and getattr(exc, "code", None) == 429):
+        return False
+    msg = str(exc).lower()
+    return "quota" in msg and "per day" in msg
 
 
 class RateLimitExhaustedError(Exception):

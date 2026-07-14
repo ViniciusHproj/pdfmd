@@ -17,7 +17,9 @@ CONVERTER_PROMPT = (_PROMPTS_DIR / "converter_prompt.txt").read_text(encoding="u
 VALIDATOR_PROMPT = (_PROMPTS_DIR / "validator_prompt.txt").read_text(encoding="utf-8")
 RECONVERT_PROMPT_TEMPLATE = (_PROMPTS_DIR / "reconvert_prompt.txt").read_text(encoding="utf-8")
 
-_client = None
+_client_converter   = None
+_client_validator   = None
+_client_reconverter = None
 
 # Retry apenas para erro de limite de requisições (429 / RESOURCE_EXHAUSTED).
 # Espera crescente: 30s, 60s, 90s, 120s entre as até 5 tentativas.
@@ -26,17 +28,41 @@ RATE_LIMIT_WAIT_START = 30
 RATE_LIMIT_WAIT_INCREMENT = 30
 
 
-def get_client():
-    global _client
-    if _client is None:
-        if not settings.GEMINI_API_KEY:
-            raise RuntimeError("GEMINI_API_KEY não configurada. Defina no arquivo .env.")
-        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
-    return _client
+def _make_client(api_key, name):
+    if not api_key:
+        raise RuntimeError(f"{name} não configurada. Defina no arquivo .env.")
+    return genai.Client(api_key=api_key)
+
+
+def get_client_converter():
+    global _client_converter
+    if _client_converter is None:
+        _client_converter = _make_client(settings.GEMINI_API_KEY_CONVERTER, "GEMINI_API_KEY_CONVERTER")
+    return _client_converter
+
+
+def get_client_validator():
+    global _client_validator
+    if _client_validator is None:
+        _client_validator = _make_client(settings.GEMINI_API_KEY_VALIDATOR, "GEMINI_API_KEY_VALIDATOR")
+    return _client_validator
+
+
+def get_client_reconverter():
+    global _client_reconverter
+    if _client_reconverter is None:
+        _client_reconverter = _make_client(settings.GEMINI_API_KEY_RECONVERTER, "GEMINI_API_KEY_RECONVERTER")
+    return _client_reconverter
 
 
 def _is_rate_limit_error(exc):
-    return isinstance(exc, errors.APIError) and getattr(exc, "code", None) == 429
+    if not (isinstance(exc, errors.APIError) and getattr(exc, "code", None) == 429):
+        return False
+    # Quota diária esgotada não reseta em minutos — não adianta retentar.
+    # RPM (requests per minute) reseta em ~1 min e vale retentar.
+    msg = str(exc).lower()
+    is_daily_quota = "quota" in msg and "per day" in msg
+    return not is_daily_quota
 
 
 def _rate_limit_retry(on_retry):
@@ -65,7 +91,7 @@ def convert_block_to_markdown(pdf_bytes, on_retry=None):
 
     @_rate_limit_retry(on_retry)
     def _call():
-        client = get_client()
+        client = get_client_converter()
         response = client.models.generate_content(
             model=settings.GEMINI_MODEL,
             contents=[
@@ -82,19 +108,19 @@ def reconvert_block_with_feedback(pdf_bytes, previous_markdown, issues_text, on_
     """Reenvia o sub-PDF pedindo uma nova transcrição que corrija os problemas
     apontados pelo validador na tentativa anterior."""
 
-    prompt = RECONVERT_PROMPT_TEMPLATE.format(
-        issues=issues_text,
-        previous_markdown=previous_markdown,
+    prompt = (
+        RECONVERT_PROMPT_TEMPLATE
+        .replace("{issues}", issues_text)
+        .replace("{previous_markdown}", previous_markdown)
     )
 
     @_rate_limit_retry(on_retry)
     def _call():
-        client = get_client()
+        client = get_client_reconverter()
         response = client.models.generate_content(
             model=settings.GEMINI_MODEL,
             contents=[
                 types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"),
-                CONVERTER_PROMPT,
                 prompt,
             ],
         )
@@ -128,13 +154,15 @@ VALIDATION_SCHEMA = {
 def _sanitize_validation(validation):
     """Remove da lista de problemas qualquer item que o próprio validador
     classificou como carimbo/rubrica/ilegível, e recalcula `aprovado` com
-    base no que sobrar. Isso evita que o modelo reprove um bloco por algo
-    que ele mesmo reconhece que deveria ser ignorado."""
+    base no que sobrar. Só força aprovação se havia trechos problemáticos
+    e todos foram filtrados — não sobrescreve reprovação sem trechos listados."""
     trechos = validation.get("trechos_problematicos", [])
     trechos_relevantes = [t for t in trechos if not t.get("e_carimbo_rubrica_ou_ilegivel")]
 
     validation["trechos_problematicos"] = trechos_relevantes
-    if not trechos_relevantes:
+    # Só força aprovação quando havia itens e TODOS foram filtrados como irrelevantes.
+    # Se o modelo retornou aprovado=False com lista vazia, respeita a reprovação.
+    if trechos and not trechos_relevantes:
         validation["aprovado"] = True
     return validation
 
@@ -150,7 +178,7 @@ def validate_block(pdf_bytes, markdown_text, on_retry=None):
 
     @_rate_limit_retry(on_retry)
     def _call():
-        client = get_client()
+        client = get_client_validator()
         response = client.models.generate_content(
             model=settings.GEMINI_MODEL,
             contents=[
@@ -163,6 +191,12 @@ def validate_block(pdf_bytes, markdown_text, on_retry=None):
                 response_schema=VALIDATION_SCHEMA,
             ),
         )
-        return json.loads(response.text)
+        raw = response.text
+        if not raw:
+            raise ValueError(
+                "Gemini retornou resposta vazia na validação "
+                "(possível bloqueio por safety filter). Tente novamente."
+            )
+        return json.loads(raw)
 
     return _sanitize_validation(_call())

@@ -152,17 +152,23 @@
       if (data.status === 'done') {
         doneJobs.add(jobId);
         updateDownloadAllBar();
+        extra.innerHTML = '';
+        const link = document.createElement('a');
+        link.className = 'download';
+        link.href = data.result_url;
+        link.setAttribute('download', '');
+        link.textContent = '⬇ Baixar Markdown';
+        extra.appendChild(link);
         if (data.needs_review) {
           card.classList.add('review');
           badge.className = 'badge review';
           badge.textContent = 'concluído - precisa de revisão';
-          extra.innerHTML =
-            '<a class="download" href="' + data.result_url + '" download>⬇ Baixar Markdown</a>' +
-            '<div class="review-text"></div>';
-          extra.querySelector('.review-text').textContent = data.review_notes;
+          const reviewDiv = document.createElement('div');
+          reviewDiv.className = 'review-text';
+          reviewDiv.textContent = data.review_notes;
+          extra.appendChild(reviewDiv);
         } else {
           card.classList.add('done');
-          extra.innerHTML = '<a class="download" href="' + data.result_url + '" download>⬇ Baixar Markdown</a>';
         }
         return;
       }

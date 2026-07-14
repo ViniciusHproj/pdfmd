@@ -1,5 +1,6 @@
 import io
 import zipfile
+from pathlib import Path
 
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -55,7 +56,7 @@ def download_all(request):
     used_names = set()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         for job in jobs:
-            name = job.result_file.name.rsplit("/", 1)[-1]
+            name = Path(job.result_file.name).name
             base, ext = name.rsplit(".", 1) if "." in name else (name, "md")
             candidate = name
             counter = 2

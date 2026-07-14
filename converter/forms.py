@@ -25,4 +25,10 @@ class PdfUploadForm(forms.Form):
         for f in files:
             if not f.name.lower().endswith(".pdf"):
                 raise forms.ValidationError(f"'{f.name}' não é um arquivo PDF.")
+            header = f.read(5)
+            f.seek(0)
+            if header != b"%PDF-":
+                raise forms.ValidationError(
+                    f"'{f.name}' não parece ser um PDF válido (assinatura incorreta)."
+                )
         return files

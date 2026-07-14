@@ -18,6 +18,16 @@ def _worker_loop():
             run_pipeline(job)
         except ConversionJob.DoesNotExist:
             pass
+        except Exception:
+            import traceback
+            try:
+                job = ConversionJob.objects.get(pk=job_id)
+                if job.status not in (ConversionJob.STATUS_DONE, ConversionJob.STATUS_FAILED):
+                    job.status = ConversionJob.STATUS_FAILED
+                    job.error_message = f"Erro inesperado no worker:\n{traceback.format_exc()}"
+                    job.save(update_fields=["status", "error_message", "updated_at"])
+            except Exception:
+                pass
         finally:
             _job_queue.task_done()
 
