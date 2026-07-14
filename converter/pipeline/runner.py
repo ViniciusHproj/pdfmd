@@ -159,7 +159,7 @@ def run_pipeline(job):
         clear_fix_info()
         job.save()
 
-    except RateLimitExhaustedError as exc:
+    except (RateLimitExhaustedError, ValueError) as exc:
         job.status = ConversionJob.STATUS_FAILED
         job.error_message = str(exc)
         clear_retry_info()
