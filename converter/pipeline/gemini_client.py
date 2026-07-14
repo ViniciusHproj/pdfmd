@@ -83,7 +83,13 @@ def _blocked_reason(response):
 
 
 def _is_rate_limit_error(exc):
-    if not (isinstance(exc, errors.APIError) and getattr(exc, "code", None) == 429):
+    if not isinstance(exc, errors.APIError):
+        return False
+    code = getattr(exc, "code", None)
+    # 503 UNAVAILABLE: modelo temporariamente sobrecarregado — vale retentar.
+    if code == 503:
+        return True
+    if code != 429:
         return False
     # Quota diária esgotada não reseta em minutos — não adianta retentar.
     # RPM (requests per minute) reseta em ~1 min e vale retentar.
