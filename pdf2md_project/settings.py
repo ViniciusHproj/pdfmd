@@ -153,6 +153,11 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Permite uploads de PDFs grandes (até 200 MB por requisição).
+# O padrão do Django é 2,5 MB, o que rejeita PDFs grandes com 400 Bad Request.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 200 * 1024 * 1024  # 200 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 200 * 1024 * 1024  # 200 MB
+
 # Segurança extra quando rodando em produção (Render sempre serve via HTTPS).
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
