@@ -55,6 +55,29 @@ def get_client_reconverter():
     return _client_reconverter
 
 
+def _blocked_reason(response):
+    try:
+        candidates = response.candidates or []
+        if candidates:
+            finish_reason = getattr(candidates[0], "finish_reason", None)
+            if finish_reason:
+                name = getattr(finish_reason, "name", str(finish_reason))
+                labels = {
+                    "SAFETY": "bloqueado por safety filter",
+                    "RECITATION": "bloqueado por copyright/recitação",
+                    "PROHIBITED_CONTENT": "conteúdo proibido",
+                }
+                return labels.get(name, f"finish_reason={name}")
+        feedback = getattr(response, "prompt_feedback", None)
+        if feedback:
+            block_reason = getattr(feedback, "block_reason", None)
+            if block_reason:
+                return f"prompt bloqueado: {getattr(block_reason, 'name', block_reason)}"
+    except Exception:
+        pass
+    return "resposta vazia sem motivo informado"
+
+
 def _is_rate_limit_error(exc):
     if not (isinstance(exc, errors.APIError) and getattr(exc, "code", None) == 429):
         return False
@@ -99,7 +122,14 @@ def convert_block_to_markdown(pdf_bytes, on_retry=None):
                 CONVERTER_PROMPT,
             ],
         )
-        return (response.text or "").strip()
+        text = (response.text or "").strip()
+        if not text:
+            reason = _blocked_reason(response)
+            raise ValueError(
+                f"Gemini recusou processar o bloco ({reason}). "
+                "Verifique se o PDF contém conteúdo protegido por copyright ou bloqueado por política de uso."
+            )
+        return text
 
     return _call()
 
