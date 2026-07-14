@@ -11,6 +11,10 @@ from tenacity import (
     wait_incrementing,
 )
 
+class BlockedByPolicyError(Exception):
+    """Levantada quando o Gemini recusa processar um bloco por copyright ou safety filter."""
+
+
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 CONVERTER_PROMPT = (_PROMPTS_DIR / "converter_prompt.txt").read_text(encoding="utf-8")
@@ -125,10 +129,7 @@ def convert_block_to_markdown(pdf_bytes, on_retry=None):
         text = (response.text or "").strip()
         if not text:
             reason = _blocked_reason(response)
-            raise ValueError(
-                f"Gemini recusou processar o bloco ({reason}). "
-                "Verifique se o PDF contém conteúdo protegido por copyright ou bloqueado por política de uso."
-            )
+            raise BlockedByPolicyError(reason)
         return text
 
     return _call()
