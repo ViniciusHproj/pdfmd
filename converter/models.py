@@ -21,8 +21,8 @@ class ConversionJob(models.Model):
     STEP_RATE_LIMITED = "rate_limited"
     STEP_FIXING = "fixing"
 
-    original_pdf = models.FileField(upload_to="uploads/")
-    original_filename = models.CharField(max_length=255)
+    original_pdf = models.FileField(upload_to="uploads/", max_length=500)
+    original_filename = models.CharField(max_length=500)
 
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUEUED)
     current_step = models.CharField(max_length=20, blank=True, default="")
@@ -37,7 +37,7 @@ class ConversionJob(models.Model):
     fix_max = models.PositiveIntegerField(default=0)
 
     error_message = models.TextField(blank=True, default="")
-    result_file = models.FileField(upload_to="results/", blank=True, null=True)
+    result_file = models.FileField(upload_to="results/", blank=True, null=True, max_length=500)
 
     needs_review = models.BooleanField(default=False)
     review_notes = models.TextField(blank=True, default="")
